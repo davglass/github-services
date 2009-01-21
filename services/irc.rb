@@ -14,7 +14,7 @@ service :irc do |data, payload|
   end
 
   if data['ssl'].to_i == 1
-    ssl_context = OpenSSL::SSL::SSLContext.new()
+    ssl_context = OpenSSL::SSL::SSLContext.new
     ssl_context.verify_mode = OpenSSL::SSL::VERIFY_NONE
     ssl_socket = OpenSSL::SSL::SSLSocket.new(socket, ssl_context)
     ssl_socket.sync_close = true
@@ -25,8 +25,23 @@ service :irc do |data, payload|
   end
 
   irc.puts "PASS #{data['password']}" unless data['password'].empty?
-  irc.puts "USER #{botname} #{botname} #{botname} :GitHub IRCBot"
   irc.puts "NICK #{botname}"
+  irc.puts "USER #{botname} 8 * :GitHub IRCBot"
+
+  begin
+    Timeout.timeout(10) do
+      loop do
+        case irc.gets
+        when / 004 #{botname} /
+          break
+        when /^PING\s*:\s*(.*)$/
+          irc.puts "PONG #{$1}"
+        end
+      end
+    end
+  rescue Timeout::Error
+    throw :halt, 400
+  end
 
   rooms.each do |room|
     room, pass = room.split("::")
@@ -34,21 +49,15 @@ service :irc do |data, payload|
     payload['commits'].each do |commit|
       sha1 = commit['id']
 
-      isgd_url = nil
-      begin
-        Timeout::timeout(6) do
-          isgd_url = Net::HTTP.get "is.gd", "/api.php?longurl=#{commit['url']}"
-        end
-      rescue Timeout::Error
-        isgd_url = commit['url']
-      end
+      tiny_url = shorten_url(commit['url'])
 
       irc.puts "PRIVMSG #{room} :\002#{repository}:\002 \0033#{commit['author']['name']} \00307#{branch}\0030 SHA1-\002#{sha1[0..6]}\002"
       irc.puts "PRIVMSG #{room} :#{commit['message']}"
-      irc.puts "PRIVMSG #{room} :#{isgd_url}"
+      irc.puts "PRIVMSG #{room} :#{tiny_url}"
     end
     irc.puts "PART #{room}"
   end
 
   irc.puts "QUIT"
+  irc.gets until irc.eof?
 end
