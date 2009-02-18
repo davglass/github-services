@@ -3,6 +3,7 @@ service :irc do |data, payload|
   branch     = (payload['ref'] =~ /^refs\/heads\/(.+)$/ ? $1 : payload['ref'])
   rooms      = data['room'].gsub(",", " ").split(" ").map{|room| room[0].chr == '#' ? room : "##{room}"}
   botname    = data['nick'] || "GitHub#{rand(200)}"
+  short      = data['short'] || false
   socket     = nil
 
   begin
@@ -46,14 +47,19 @@ service :irc do |data, payload|
   rooms.each do |room|
     room, pass = room.split("::")
     irc.puts "JOIN #{room} #{pass}"
-    payload['commits'].each do |commit|
-      sha1 = commit['id']
+    if short
+        tiny_url = shorten_url(payload['repository']['url'])
+        irc.puts "PRIVMSG #{room} :\002#{repository} pushed to #{branch}: #{tiny_url}\002"
+    else
+        payload['commits'].each do |commit|
+          sha1 = commit['id']
 
-      tiny_url = shorten_url(commit['url'])
+          tiny_url = shorten_url(commit['url'])
 
-      irc.puts "PRIVMSG #{room} :\002#{repository}:\002 \0033#{commit['author']['name']} \00307#{branch}\0030 SHA1-\002#{sha1[0..6]}\002"
-      irc.puts "PRIVMSG #{room} :#{commit['message']}"
-      irc.puts "PRIVMSG #{room} :#{tiny_url}"
+          irc.puts "PRIVMSG #{room} :\002#{repository}:\002 \0033#{commit['author']['name']} \00307#{branch}\0030 SHA1-\002#{sha1[0..6]}\002"
+          irc.puts "PRIVMSG #{room} :#{commit['message']}"
+          irc.puts "PRIVMSG #{room} :#{tiny_url}"
+        end
     end
     irc.puts "PART #{room}"
   end
